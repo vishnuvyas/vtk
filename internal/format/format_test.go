@@ -1,4 +1,4 @@
-package main
+package format
 
 import (
 	"bytes"
@@ -6,11 +6,9 @@ import (
 	"os"
 	"strings"
 	"testing"
-
-	"github.com/vishnuvyas/vtk/internal/format"
 )
 
-func TestFormatJSON(t *testing.T) {
+func TestJSON(t *testing.T) {
 	tests := []struct {
 		name        string
 		input       string
@@ -62,7 +60,7 @@ func TestFormatJSON(t *testing.T) {
 			r, w, _ := os.Pipe()
 			os.Stdout = w
 
-			err := format.JSON([]byte(tt.input))
+			err := JSON([]byte(tt.input))
 
 			// Restore stdout
 			w.Close()
@@ -94,7 +92,7 @@ func TestFormatJSON(t *testing.T) {
 	}
 }
 
-func TestFormatJSON_ErrorCases(t *testing.T) {
+func TestJSON_ErrorCases(t *testing.T) {
 	tests := []struct {
 		name        string
 		input       string
@@ -124,7 +122,7 @@ func TestFormatJSON_ErrorCases(t *testing.T) {
 			os.Stdout, _ = os.Open(os.DevNull)
 			defer func() { os.Stdout = oldStdout }()
 
-			err := format.JSON([]byte(tt.input))
+			err := JSON([]byte(tt.input))
 			if err == nil {
 				t.Errorf("expected error containing %q but got no error", tt.errorSubstr)
 				return
@@ -137,7 +135,7 @@ func TestFormatJSON_ErrorCases(t *testing.T) {
 	}
 }
 
-func TestFormatJSON_WhitespaceHandling(t *testing.T) {
+func TestJSON_WhitespaceHandling(t *testing.T) {
 	// Test that input with various whitespace formats all produce the same output
 	inputs := []string{
 		`{"a":1,"b":2}`,
@@ -158,7 +156,7 @@ func TestFormatJSON_WhitespaceHandling(t *testing.T) {
 			r, w, _ := os.Pipe()
 			os.Stdout = w
 
-			err := format.JSON([]byte(input))
+			err := JSON([]byte(input))
 
 			w.Close()
 			os.Stdout = oldStdout
@@ -179,7 +177,7 @@ func TestFormatJSON_WhitespaceHandling(t *testing.T) {
 	}
 }
 
-func TestFormatSQL(t *testing.T) {
+func TestSQL(t *testing.T) {
 	tests := []struct {
 		name        string
 		input       string
@@ -237,7 +235,7 @@ func TestFormatSQL(t *testing.T) {
 			r, w, _ := os.Pipe()
 			os.Stdout = w
 
-			err := format.SQL([]byte(tt.input))
+			err := SQL([]byte(tt.input))
 
 			// Restore stdout
 			w.Close()
@@ -269,7 +267,7 @@ func TestFormatSQL(t *testing.T) {
 	}
 }
 
-func TestFormatSQL_ErrorCases(t *testing.T) {
+func TestSQL_ErrorCases(t *testing.T) {
 	tests := []struct {
 		name        string
 		input       string
@@ -294,7 +292,7 @@ func TestFormatSQL_ErrorCases(t *testing.T) {
 			os.Stdout, _ = os.Open(os.DevNull)
 			defer func() { os.Stdout = oldStdout }()
 
-			err := format.SQL([]byte(tt.input))
+			err := SQL([]byte(tt.input))
 			if err == nil {
 				t.Errorf("expected error containing %q but got no error", tt.errorSubstr)
 				return

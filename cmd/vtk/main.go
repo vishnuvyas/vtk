@@ -2,14 +2,12 @@
 package main
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 	"os"
-	"strings"
 
-	sqlfmt "github.com/kanmu/go-sqlfmt"
+	"github.com/vishnuvyas/vtk/internal/format"
 )
 
 func main() {
@@ -76,49 +74,10 @@ func runFormat(args []string) error {
 	// Format based on type
 	switch *formatType {
 	case "json":
-		return formatJSON(data)
+		return format.JSON(data)
 	case "sql":
-		return formatSQL(data)
+		return format.SQL(data)
 	default:
 		return fmt.Errorf("unsupported format: %q", *formatType)
 	}
-}
-
-func formatJSON(data []byte) error {
-	// Parse JSON
-	var jsonData interface{}
-	if err := json.Unmarshal(data, &jsonData); err != nil {
-		return fmt.Errorf("failed to parse JSON: %w", err)
-	}
-
-	// Pretty print JSON
-	prettyJSON, err := json.MarshalIndent(jsonData, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to format JSON: %w", err)
-	}
-
-	// Output to stdout
-	fmt.Println(string(prettyJSON))
-	return nil
-}
-
-func formatSQL(data []byte) error {
-	// Trim whitespace
-	sql := strings.TrimSpace(string(data))
-
-	// Check for empty input
-	if sql == "" {
-		return fmt.Errorf("failed to parse SQL: empty input")
-	}
-
-	// Format SQL using go-sqlfmt
-	formatter := &sqlfmt.Formatter{}
-	formatted, err := formatter.Format(sql)
-	if err != nil {
-		return fmt.Errorf("failed to parse SQL: %w", err)
-	}
-
-	// Output to stdout
-	fmt.Println(formatted)
-	return nil
 }
