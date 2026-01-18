@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
+
+	sqlfmt "github.com/kanmu/go-sqlfmt"
 )
 
 func main() {
@@ -34,7 +37,7 @@ func run() error {
 func runFormat(args []string) error {
 	// Create a new flag set for the format command
 	formatCmd := flag.NewFlagSet("format", flag.ExitOnError)
-	formatType := formatCmd.String("f", "json", "output format (json)")
+	formatType := formatCmd.String("f", "json", "output format (json, sql)")
 
 	// Parse flags
 	if err := formatCmd.Parse(args); err != nil {
@@ -42,8 +45,8 @@ func runFormat(args []string) error {
 	}
 
 	// Validate format type
-	if *formatType != "json" {
-		return fmt.Errorf("unsupported format: %q (supported: json)", *formatType)
+	if *formatType != "json" && *formatType != "sql" {
+		return fmt.Errorf("unsupported format: %q (supported: json, sql)", *formatType)
 	}
 
 	var input io.Reader
@@ -74,6 +77,8 @@ func runFormat(args []string) error {
 	switch *formatType {
 	case "json":
 		return formatJSON(data)
+	case "sql":
+		return formatSQL(data)
 	default:
 		return fmt.Errorf("unsupported format: %q", *formatType)
 	}
@@ -94,5 +99,26 @@ func formatJSON(data []byte) error {
 
 	// Output to stdout
 	fmt.Println(string(prettyJSON))
+	return nil
+}
+
+func formatSQL(data []byte) error {
+	// Trim whitespace
+	sql := strings.TrimSpace(string(data))
+
+	// Check for empty input
+	if sql == "" {
+		return fmt.Errorf("failed to parse SQL: empty input")
+	}
+
+	// Format SQL using go-sqlfmt
+	formatter := &sqlfmt.Formatter{}
+	formatted, err := formatter.Format(sql)
+	if err != nil {
+		return fmt.Errorf("failed to parse SQL: %w", err)
+	}
+
+	// Output to stdout
+	fmt.Println(formatted)
 	return nil
 }

@@ -34,6 +34,13 @@ func TestRunFormat_Integration(t *testing.T) {
 			expectError: false,
 		},
 		{
+			name:        "format SQL with -f sql flag",
+			args:        []string{"-f", "sql"},
+			stdin:       `SELECT id,name,email FROM users WHERE active=1 AND role='admin' ORDER BY created_at DESC`,
+			expected:    "\nSELECT\n  id\n  , name\n  , email\nFROM users\nWHERE active=1 AND role= 'admin'\nORDER BY\n  created_at DESC\n",
+			expectError: false,
+		},
+		{
 			name:        "format with unsupported format",
 			args:        []string{"-f", "xml"},
 			stdin:       `{"key":"value"}`,
@@ -137,6 +144,13 @@ func TestRunFormat_FileInput(t *testing.T) {
 			args:        []string{"-f", "json", filepath.Join(tempDir, "test2.json")},
 			fileContent: `[1,2,3]`,
 			expected:    "[\n  1,\n  2,\n  3\n]\n",
+			expectError: false,
+		},
+		{
+			name:        "format SQL from file",
+			args:        []string{"-f", "sql", filepath.Join(tempDir, "test.sql")},
+			fileContent: `SELECT * FROM users WHERE id=1`,
+			expected:    "\nSELECT\n  *\nFROM users\nWHERE id=1\n",
 			expectError: false,
 		},
 		{
@@ -421,6 +435,86 @@ func TestRunFormat_ComplexJSON(t *testing.T) {
 
 			// Run the format command
 			err := runFormat([]string{})
+
+			// Restore stdout and read output
+			wOut.Close()
+			os.Stdout = oldStdout
+
+			var buf bytes.Buffer
+			io.Copy(&buf, rOut)
+			output := buf.String()
+
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+				return
+			}
+
+			// Check output
+			if output != tt.expected {
+				t.Errorf("output mismatch:\nexpected:\n%q\ngot:\n%q", tt.expected, output)
+			}
+		})
+	}
+}
+
+// TestRunFormat_SQL tests formatting of various SQL statements
+func TestRunFormat_SQL(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "simple SELECT statement",
+			input:    `SELECT id,name,email FROM users WHERE active=1`,
+			expected: "\nSELECT\n  id\n  , name\n  , email\nFROM users\nWHERE active=1\n",
+		},
+		{
+			name:     "SELECT with JOIN",
+			input:    `SELECT u.id,u.name,o.total FROM users u JOIN orders o ON u.id=o.user_id WHERE o.status='completed'`,
+			expected: "\nSELECT\n  u.id\n  , u.name\n  , o.total\nFROM users u\nJOIN orders o\nON u.id=o.user_id\nWHERE o.status= 'completed'\n",
+		},
+		{
+			name:     "INSERT statement",
+			input:    `INSERT INTO users(name,email,created_at) VALUES('John Doe','john@example.com',NOW())`,
+			expected: "\nINSERT INTO users (name, email, created_at)\nVALUES ('John Doe', 'john@example.com', NOW ())\n",
+		},
+		{
+			name:     "UPDATE statement",
+			input:    `UPDATE users SET name='Jane Doe',updated_at=NOW() WHERE id=1`,
+			expected: "\nUPDATE\n  users\nSET\n  name= 'Jane Doe'\n  , updated_at=NOW ()\nWHERE id=1\n",
+		},
+		{
+			name:     "DELETE statement",
+			input:    `DELETE FROM users WHERE created_at<'2020-01-01' AND active=0`,
+			expected: "\nDELETE\nFROM users\nWHERE created_at< '2020-01-01' AND active=0\n",
+		},
+		{
+			name:     "SELECT with subquery",
+			input:    `SELECT * FROM users WHERE id IN(SELECT user_id FROM orders WHERE total>1000)`,
+			expected: "\nSELECT\n  *\nFROM users\nWHERE id IN (\n  SELECT\n    user_id\n  FROM orders\n  WHERE total>1000\n)\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Save and restore stdin
+			oldStdin := os.Stdin
+			defer func() { os.Stdin = oldStdin }()
+
+			// Create pipe for stdin
+			r, w, _ := os.Pipe()
+			os.Stdin = r
+			w.Write([]byte(tt.input))
+			w.Close()
+
+			// Capture stdout
+			oldStdout := os.Stdout
+			rOut, wOut, _ := os.Pipe()
+			os.Stdout = wOut
+
+			// Run the format command with -f sql
+			err := runFormat([]string{"-f", "sql"})
 
 			// Restore stdout and read output
 			wOut.Close()
