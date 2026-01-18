@@ -9,7 +9,7 @@
 *.dylib
 
 # Built binary
-vtk
+/vtk
 
 # Test binary, built with `go test -c`
 *.test
