@@ -86,20 +86,39 @@ func runFormat(args []string) error {
 }
 
 func runFind(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: vtk find <pattern> [directory]\n\nSearch for a regex pattern in files, respecting .gitignore")
+	// Create a new flag set for the find command
+	findCmd := flag.NewFlagSet("find", flag.ExitOnError)
+	symbolSearch := findCmd.Bool("s", false, "search for symbols in code files (typescript, tsx, js, jsx, go, python, sql)")
+
+	// Parse flags
+	if err := findCmd.Parse(args); err != nil {
+		return fmt.Errorf("failed to parse flags: %w", err)
 	}
 
-	pattern := args[0]
+	// Get remaining arguments (pattern and optional directory)
+	remainingArgs := findCmd.Args()
+	if len(remainingArgs) < 1 {
+		return fmt.Errorf("usage: vtk find [-s] <pattern> [directory]\n\nSearch for a regex pattern in files\n  -s    search for symbols in code files")
+	}
+
+	pattern := remainingArgs[0]
 	dir := "."
 
 	// Optional directory argument
-	if len(args) > 1 {
-		dir = args[1]
+	if len(remainingArgs) > 1 {
+		dir = remainingArgs[1]
 	}
 
-	// Perform search
-	results, err := finder.Find(dir, pattern)
+	// Perform search (symbol or text)
+	var results []finder.Result
+	var err error
+
+	if *symbolSearch {
+		results, err = finder.FindSymbols(dir, pattern)
+	} else {
+		results, err = finder.Find(dir, pattern)
+	}
+
 	if err != nil {
 		return fmt.Errorf("search failed: %w", err)
 	}

@@ -648,3 +648,121 @@ func TestRunFind_Integration(t *testing.T) {
 		})
 	}
 }
+
+// TestRunFind_SymbolSearch tests the find command with -s flag
+func TestRunFind_SymbolSearch(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// Create test files
+	testFiles := map[string]string{
+		"main.go": `package main
+
+func HelloWorld() {
+	println("hello")
+}
+
+func TestFunc() {
+	println("test")
+}
+`,
+		"test.ts": `function helloWorld() {
+	console.log("test");
+}
+
+class MyClass {
+	testMethod() {}
+}
+`,
+		"README.md": `# This should be ignored
+hello world test
+`,
+	}
+
+	for path, content := range testFiles {
+		fullPath := filepath.Join(tempDir, path)
+		os.WriteFile(fullPath, []byte(content), 0644)
+	}
+
+	tests := []struct {
+		name        string
+		args        []string
+		workDir     string
+		expectError bool
+		checkOutput func(string) error
+	}{
+		{
+			name:        "symbol search with -s flag",
+			args:        []string{"-s", "hello"},
+			workDir:     tempDir,
+			expectError: false,
+			checkOutput: func(output string) error {
+				if !strings.Contains(output, "HelloWorld") && !strings.Contains(output, "helloWorld") {
+					return fmt.Errorf("expected to find hello symbols")
+				}
+				if !strings.Contains(output, "main.go") && !strings.Contains(output, "test.ts") {
+					return fmt.Errorf("expected to find matches in code files")
+				}
+				if strings.Contains(output, "README.md") {
+					return fmt.Errorf("should not search in non-code files")
+				}
+				return nil
+			},
+		},
+		{
+			name:        "symbol search for Test",
+			args:        []string{"-s", "Test"},
+			workDir:     tempDir,
+			expectError: false,
+			checkOutput: func(output string) error {
+				if !strings.Contains(output, "TestFunc") && !strings.Contains(output, "testMethod") {
+					return fmt.Errorf("expected to find Test symbols")
+				}
+				return nil
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Save current directory
+			oldDir, _ := os.Getwd()
+			defer os.Chdir(oldDir)
+
+			// Change to test directory
+			os.Chdir(tt.workDir)
+
+			// Capture stdout
+			oldStdout := os.Stdout
+			r, w, _ := os.Pipe()
+			os.Stdout = w
+
+			// Run find command
+			err := runFind(tt.args)
+
+			// Restore stdout
+			w.Close()
+			os.Stdout = oldStdout
+
+			var buf bytes.Buffer
+			io.Copy(&buf, r)
+			output := buf.String()
+
+			// Check error expectation
+			if tt.expectError && err == nil {
+				t.Error("expected error but got none")
+				return
+			}
+			if !tt.expectError && err != nil {
+				t.Errorf("unexpected error: %v", err)
+				return
+			}
+
+			// Check output
+			if tt.checkOutput != nil {
+				if err := tt.checkOutput(output); err != nil {
+					t.Error(err)
+				}
+			}
+		})
+	}
+}

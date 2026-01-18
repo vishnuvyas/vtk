@@ -195,3 +195,188 @@ func TestIsBinaryFile(t *testing.T) {
 		})
 	}
 }
+
+func TestFindSymbols(t *testing.T) {
+	// Create temporary test directory
+	tempDir := t.TempDir()
+
+	// Create test files with various languages
+	testFiles := map[string]string{
+		"test.go": `package main
+
+func HelloWorld() {
+	println("hello")
+}
+
+func GoodbyeWorld() {
+	println("goodbye")
+}
+
+type MyStruct struct {
+	name string
+}
+`,
+		"test.ts": `function helloTypescript() {
+	console.log("hello");
+}
+
+class WorldClass {
+	constructor() {}
+}
+
+const myVariable = 42;
+`,
+		"test.py": `def hello_python():
+	print("hello")
+
+class WorldPython:
+	def __init__(self):
+		pass
+
+my_var = 42
+`,
+		"test.js": `function helloJavaScript() {
+	console.log("hello");
+}
+
+const worldConst = "world";
+`,
+		"test.sql": `CREATE TABLE hello_table (
+	id INT PRIMARY KEY
+);
+
+CREATE FUNCTION world_function()
+RETURNS INT AS $$
+BEGIN
+	RETURN 42;
+END;
+$$ LANGUAGE plpgsql;
+`,
+		"README.md": `# Documentation
+This file should be ignored in symbol search
+`,
+	}
+
+	for path, content := range testFiles {
+		fullPath := filepath.Join(tempDir, path)
+		os.WriteFile(fullPath, []byte(content), 0644)
+	}
+
+	tests := []struct {
+		name            string
+		pattern         string
+		expectedSymbols []string // symbols that should be found
+		unexpectedFiles []string // file types that should NOT be searched
+	}{
+		{
+			name:    "find hello symbols",
+			pattern: "(?i)hello", // case-insensitive
+			expectedSymbols: []string{
+				"HelloWorld",
+				"helloTypescript",
+				"hello_python",
+				"helloJavaScript",
+				"hello_table",
+			},
+			unexpectedFiles: []string{"README.md"},
+		},
+		{
+			name:    "find world symbols",
+			pattern: "[Ww]orld",
+			expectedSymbols: []string{
+				"HelloWorld",
+				"GoodbyeWorld",
+				"WorldClass",
+				"WorldPython",
+				"worldConst",
+				"world_function",
+			},
+			unexpectedFiles: []string{"README.md"},
+		},
+		{
+			name:            "no symbol matches",
+			pattern:         "nonexistent",
+			expectedSymbols: []string{},
+			unexpectedFiles: []string{"README.md"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			results, err := FindSymbols(tempDir, tt.pattern)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			// Check expected symbols appear
+			for _, expectedSymbol := range tt.expectedSymbols {
+				found := false
+				for _, result := range results {
+					if strings.Contains(result.Match, expectedSymbol) {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("expected to find symbol %q, but didn't", expectedSymbol)
+				}
+			}
+
+			// Check unexpected files don't appear
+			for _, unexpectedFile := range tt.unexpectedFiles {
+				for _, result := range results {
+					if strings.Contains(result.Path, unexpectedFile) {
+						t.Errorf("did not expect matches in %s", unexpectedFile)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestFindSymbols_UnsupportedFiles(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// Create files of unsupported types
+	os.WriteFile(filepath.Join(tempDir, "test.txt"), []byte("some text"), 0644)
+	os.WriteFile(filepath.Join(tempDir, "test.md"), []byte("# markdown"), 0644)
+
+	results, err := FindSymbols(tempDir, "test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should find no symbols since these file types aren't supported
+	if len(results) > 0 {
+		t.Errorf("expected no results for unsupported file types, got %d", len(results))
+	}
+}
+
+func TestIsSupportedSymbolFile(t *testing.T) {
+	tests := []struct {
+		filename string
+		expected bool
+	}{
+		{"test.go", true},
+		{"test.ts", true},
+		{"test.tsx", true},
+		{"test.js", true},
+		{"test.jsx", true},
+		{"test.py", true},
+		{"test.sql", true},
+		{"test.txt", false},
+		{"test.md", false},
+		{"test.json", false},
+		{"test.rs", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.filename, func(t *testing.T) {
+			result := IsSupportedSymbolFile(tt.filename)
+			if result != tt.expected {
+				t.Errorf("expected IsSupportedSymbolFile(%q) to return %v, got %v",
+					tt.filename, tt.expected, result)
+			}
+		})
+	}
+}
