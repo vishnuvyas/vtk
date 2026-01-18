@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -532,6 +533,117 @@ func TestRunFormat_SQL(t *testing.T) {
 			// Check output
 			if output != tt.expected {
 				t.Errorf("output mismatch:\nexpected:\n%q\ngot:\n%q", tt.expected, output)
+			}
+		})
+	}
+}
+
+// TestRunFind_Integration tests the find subcommand
+func TestRunFind_Integration(t *testing.T) {
+	// Create temporary test directory
+	tempDir := t.TempDir()
+
+	// Create test files
+	testFiles := map[string]string{
+		"match1.txt":         "hello world",
+		"match2.go":          "world peace",
+		"nomatch.txt":        "nothing here",
+		"subdir/match3.md":   "hello there",
+		"ignored/secret.txt": "hello secret",
+	}
+
+	for path, content := range testFiles {
+		fullPath := filepath.Join(tempDir, path)
+		os.MkdirAll(filepath.Dir(fullPath), 0755)
+		os.WriteFile(fullPath, []byte(content), 0644)
+	}
+
+	// Create .gitignore
+	gitignore := "ignored/\n"
+	os.WriteFile(filepath.Join(tempDir, ".gitignore"), []byte(gitignore), 0644)
+
+	tests := []struct {
+		name        string
+		args        []string
+		workDir     string
+		expectError bool
+		checkOutput func(string) error
+	}{
+		{
+			name:        "find with pattern",
+			args:        []string{"hello"},
+			workDir:     tempDir,
+			expectError: false,
+			checkOutput: func(output string) error {
+				if !strings.Contains(output, "match1.txt") {
+					return fmt.Errorf("expected match1.txt in output")
+				}
+				if !strings.Contains(output, "match3.md") {
+					return fmt.Errorf("expected match3.md in output")
+				}
+				if strings.Contains(output, "secret.txt") {
+					return fmt.Errorf("should not include ignored files")
+				}
+				if strings.Contains(output, "nomatch.txt") {
+					return fmt.Errorf("should not include non-matching files")
+				}
+				return nil
+			},
+		},
+		{
+			name:        "no matches",
+			args:        []string{"nonexistent"},
+			workDir:     tempDir,
+			expectError: false,
+			checkOutput: func(output string) error {
+				if output != "" {
+					return fmt.Errorf("expected empty output for no matches")
+				}
+				return nil
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Save current directory
+			oldDir, _ := os.Getwd()
+			defer os.Chdir(oldDir)
+
+			// Change to test directory
+			os.Chdir(tt.workDir)
+
+			// Capture stdout
+			oldStdout := os.Stdout
+			r, w, _ := os.Pipe()
+			os.Stdout = w
+
+			// Run find command
+			err := runFind(tt.args)
+
+			// Restore stdout
+			w.Close()
+			os.Stdout = oldStdout
+
+			var buf bytes.Buffer
+			io.Copy(&buf, r)
+			output := buf.String()
+
+			// Check error expectation
+			if tt.expectError && err == nil {
+				t.Error("expected error but got none")
+				return
+			}
+			if !tt.expectError && err != nil {
+				t.Errorf("unexpected error: %v", err)
+				return
+			}
+
+			// Check output
+			if tt.checkOutput != nil {
+				if err := tt.checkOutput(output); err != nil {
+					t.Error(err)
+				}
 			}
 		})
 	}

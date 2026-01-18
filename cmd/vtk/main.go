@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/vishnuvyas/vtk/internal/finder"
 	"github.com/vishnuvyas/vtk/internal/format"
 )
 
@@ -19,7 +20,7 @@ func main() {
 
 func run() error {
 	if len(os.Args) < 2 {
-		return fmt.Errorf("usage: vtk <command> [options]\n\nAvailable commands:\n  format    Format input data (supports -f flag)")
+		return fmt.Errorf("usage: vtk <command> [options]\n\nAvailable commands:\n  format    Format input data (supports -f flag)\n  find      Search for pattern in files (respects .gitignore)")
 	}
 
 	command := os.Args[1]
@@ -27,8 +28,10 @@ func run() error {
 	switch command {
 	case "format":
 		return runFormat(os.Args[2:])
+	case "find":
+		return runFind(os.Args[2:])
 	default:
-		return fmt.Errorf("unknown command: %q\n\nAvailable commands:\n  format    Format input data (supports -f flag)", command)
+		return fmt.Errorf("unknown command: %q\n\nAvailable commands:\n  format    Format input data (supports -f flag)\n  find      Search for pattern in files (respects .gitignore)", command)
 	}
 }
 
@@ -80,4 +83,30 @@ func runFormat(args []string) error {
 	default:
 		return fmt.Errorf("unsupported format: %q", *formatType)
 	}
+}
+
+func runFind(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: vtk find <pattern> [directory]\n\nSearch for a regex pattern in files, respecting .gitignore")
+	}
+
+	pattern := args[0]
+	dir := "."
+
+	// Optional directory argument
+	if len(args) > 1 {
+		dir = args[1]
+	}
+
+	// Perform search
+	results, err := finder.Find(dir, pattern)
+	if err != nil {
+		return fmt.Errorf("search failed: %w", err)
+	}
+
+	// Format and print results in Emacs compilation mode format
+	output := finder.FormatEmacsOutput(results)
+	fmt.Print(output)
+
+	return nil
 }
