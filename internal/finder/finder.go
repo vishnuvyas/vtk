@@ -479,3 +479,235 @@ func extractSQLSymbols(content []byte) ([]Symbol, error) {
 
 	return symbols, nil
 }
+
+// Replace searches for a pattern in all text files and replaces it with the replacement string.
+// It respects .gitignore rules and only modifies text files.
+func Replace(dir string, pattern string, replacement string) ([]Result, error) {
+	// Compile regex pattern
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return nil, fmt.Errorf("invalid regex pattern: %w", err)
+	}
+
+	// Check if directory exists
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		return nil, fmt.Errorf("directory does not exist: %s", dir)
+	}
+
+	// Load .gitignore if it exists
+	var gi *ignore.GitIgnore
+	gitignorePath := filepath.Join(dir, ".gitignore")
+	if _, err := os.Stat(gitignorePath); err == nil {
+		gi, err = ignore.CompileIgnoreFile(gitignorePath)
+		if err != nil {
+			gi = nil
+		}
+	}
+
+	var results []Result
+
+	// Walk the directory tree
+	err = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+
+		// Skip directories
+		if info.IsDir() {
+			if gi != nil {
+				relPath, _ := filepath.Rel(dir, path)
+				if relPath != "." && gi.MatchesPath(relPath) {
+					return filepath.SkipDir
+				}
+			}
+			return nil
+		}
+
+		// Get relative path for gitignore matching
+		relPath, _ := filepath.Rel(dir, path)
+		if gi != nil && gi.MatchesPath(relPath) {
+			return nil
+		}
+
+		// Skip binary files
+		if IsBinaryFile(path) {
+			return nil
+		}
+
+		// Replace in file
+		matches, err := replaceInFile(path, re, replacement)
+		if err != nil {
+			return nil
+		}
+
+		results = append(results, matches...)
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return results, nil
+}
+
+// replaceInFile performs replacements in a file and writes the changes back.
+func replaceInFile(path string, re *regexp.Regexp, replacement string) ([]Result, error) {
+	// Read file content
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	var results []Result
+	lines := bytes.Split(content, []byte("\n"))
+	modified := false
+
+	for i, line := range lines {
+		if re.Match(line) {
+			loc := re.FindIndex(line)
+			column := 0
+			if len(loc) > 0 {
+				column = loc[0]
+			}
+
+			// Perform replacement
+			newLine := re.ReplaceAll(line, []byte(replacement))
+			lines[i] = newLine
+			modified = true
+
+			results = append(results, Result{
+				Path:   path,
+				Line:   i + 1,
+				Column: column,
+				Match:  string(newLine),
+			})
+		}
+	}
+
+	// Write back if modified
+	if modified {
+		newContent := bytes.Join(lines, []byte("\n"))
+		if err := os.WriteFile(path, newContent, 0644); err != nil {
+			return nil, err
+		}
+	}
+
+	return results, nil
+}
+
+// ReplaceSymbol performs semantic renaming of symbols across code files.
+// It finds all references to a symbol and renames them to the new name.
+func ReplaceSymbol(dir string, oldName string, newName string) ([]Result, error) {
+	// Check if directory exists
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		return nil, fmt.Errorf("directory does not exist: %s", dir)
+	}
+
+	// Load .gitignore if it exists
+	var gi *ignore.GitIgnore
+	gitignorePath := filepath.Join(dir, ".gitignore")
+	if _, err := os.Stat(gitignorePath); err == nil {
+		gi, err = ignore.CompileIgnoreFile(gitignorePath)
+		if err != nil {
+			gi = nil
+		}
+	}
+
+	var results []Result
+
+	// Walk the directory tree
+	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+
+		// Skip directories
+		if info.IsDir() {
+			if gi != nil {
+				relPath, _ := filepath.Rel(dir, path)
+				if relPath != "." && gi.MatchesPath(relPath) {
+					return filepath.SkipDir
+				}
+			}
+			return nil
+		}
+
+		// Check if file is supported for symbol search
+		if !IsSupportedSymbolFile(path) {
+			return nil
+		}
+
+		// Get relative path for gitignore matching
+		relPath, _ := filepath.Rel(dir, path)
+		if gi != nil && gi.MatchesPath(relPath) {
+			return nil
+		}
+
+		// Replace symbols in file
+		matches, err := replaceSymbolInFile(path, oldName, newName)
+		if err != nil {
+			return nil
+		}
+
+		results = append(results, matches...)
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return results, nil
+}
+
+// replaceSymbolInFile performs semantic symbol replacement in a file.
+func replaceSymbolInFile(path string, oldName string, newName string) ([]Result, error) {
+	// Read file content
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create a regex pattern that matches the symbol as a whole word
+	// Use word boundaries to avoid partial matches
+	pattern := `\b` + regexp.QuoteMeta(oldName) + `\b`
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return nil, err
+	}
+
+	var results []Result
+	lines := bytes.Split(content, []byte("\n"))
+	modified := false
+
+	for i, line := range lines {
+		if re.Match(line) {
+			// Find all matches in the line
+			matches := re.FindAllIndex(line, -1)
+			for _, loc := range matches {
+				results = append(results, Result{
+					Path:   path,
+					Line:   i + 1,
+					Column: loc[0],
+					Match:  newName,
+				})
+			}
+
+			// Perform replacement
+			newLine := re.ReplaceAll(line, []byte(newName))
+			lines[i] = newLine
+			modified = true
+		}
+	}
+
+	// Write back if modified
+	if modified {
+		newContent := bytes.Join(lines, []byte("\n"))
+		if err := os.WriteFile(path, newContent, 0644); err != nil {
+			return nil, err
+		}
+	}
+
+	return results, nil
+}

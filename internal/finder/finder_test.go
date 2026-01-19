@@ -380,3 +380,136 @@ func TestIsSupportedSymbolFile(t *testing.T) {
 		})
 	}
 }
+
+func TestReplace(t *testing.T) {
+	// Create temporary test directory
+	tempDir := t.TempDir()
+
+	// Create test files
+	testFiles := map[string]string{
+		"file1.txt":        "hello world\nhello there\ngoodbye world",
+		"file2.txt":        "no matches here",
+		"subdir/file3.go":  "func hello() {\n\tprintln(\"hello\")\n}",
+		"ignored/test.txt": "hello ignored",
+	}
+
+	for path, content := range testFiles {
+		fullPath := filepath.Join(tempDir, path)
+		os.MkdirAll(filepath.Dir(fullPath), 0755)
+		os.WriteFile(fullPath, []byte(content), 0644)
+	}
+
+	// Create .gitignore
+	gitignore := "ignored/\n"
+	os.WriteFile(filepath.Join(tempDir, ".gitignore"), []byte(gitignore), 0644)
+
+	// Test replacement
+	results, err := Replace(tempDir, "hello", "hi")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Check that replacements were made
+	if len(results) == 0 {
+		t.Error("expected replacements to be made")
+	}
+
+	// Verify file1.txt was modified
+	content, _ := os.ReadFile(filepath.Join(tempDir, "file1.txt"))
+	if !strings.Contains(string(content), "hi world") {
+		t.Error("expected 'hello' to be replaced with 'hi' in file1.txt")
+	}
+	if strings.Contains(string(content), "hello world") {
+		t.Error("expected 'hello world' to be completely replaced")
+	}
+
+	// Verify file2.txt was not modified
+	content, _ = os.ReadFile(filepath.Join(tempDir, "file2.txt"))
+	if content == nil || string(content) != "no matches here" {
+		t.Error("expected file2.txt to remain unchanged")
+	}
+
+	// Verify ignored file was not touched
+	content, _ = os.ReadFile(filepath.Join(tempDir, "ignored/test.txt"))
+	if !strings.Contains(string(content), "hello ignored") {
+		t.Error("expected ignored file to remain unchanged")
+	}
+}
+
+func TestReplaceSymbol(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// Create test Go file with function and calls
+	goFile := `package main
+
+func oldName() {
+	println("test")
+}
+
+func caller() {
+	oldName()
+	oldName()
+}
+`
+	os.WriteFile(filepath.Join(tempDir, "test.go"), []byte(goFile), 0644)
+
+	// Test semantic replacement
+	results, err := ReplaceSymbol(tempDir, "oldName", "newName")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should replace both definition and calls
+	if len(results) < 2 {
+		t.Errorf("expected at least 2 replacements (definition + calls), got %d", len(results))
+	}
+
+	// Verify file was modified
+	content, _ := os.ReadFile(filepath.Join(tempDir, "test.go"))
+	contentStr := string(content)
+
+	if !strings.Contains(contentStr, "func newName()") {
+		t.Error("expected function definition to be renamed")
+	}
+	if strings.Contains(contentStr, "func oldName()") {
+		t.Error("expected old function name to be gone")
+	}
+	if !strings.Contains(contentStr, "newName()") {
+		t.Error("expected function calls to be renamed")
+	}
+	if strings.Contains(contentStr, "oldName()") {
+		t.Error("expected old function calls to be gone")
+	}
+}
+
+func TestReplaceSymbol_JavaScript(t *testing.T) {
+	tempDir := t.TempDir()
+
+	jsFile := `function oldFunc() {
+	console.log("test");
+}
+
+const x = oldFunc();
+oldFunc();
+`
+	os.WriteFile(filepath.Join(tempDir, "test.js"), []byte(jsFile), 0644)
+
+	results, err := ReplaceSymbol(tempDir, "oldFunc", "newFunc")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(results) < 2 {
+		t.Errorf("expected multiple replacements, got %d", len(results))
+	}
+
+	content, _ := os.ReadFile(filepath.Join(tempDir, "test.js"))
+	contentStr := string(content)
+
+	if !strings.Contains(contentStr, "function newFunc()") {
+		t.Error("expected function definition to be renamed")
+	}
+	if !strings.Contains(contentStr, "newFunc()") {
+		t.Error("expected function calls to be renamed")
+	}
+}
