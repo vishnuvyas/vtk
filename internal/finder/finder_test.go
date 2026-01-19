@@ -513,3 +513,159 @@ oldFunc();
 		t.Error("expected function calls to be renamed")
 	}
 }
+
+func TestGlobFiles(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// Create test files and directories
+	testFiles := map[string]string{
+		"file1.go":            "package main",
+		"file2.txt":           "text",
+		"test_file.go":        "package test",
+		"subdir/nested.go":    "package nested",
+		"subdir/data.json":    "{}",
+		"subdir/deep/test.go": "package deep",
+		"ignored/ignore.go":   "package ignored",
+	}
+
+	for path, content := range testFiles {
+		fullPath := filepath.Join(tempDir, path)
+		os.MkdirAll(filepath.Dir(fullPath), 0755)
+		os.WriteFile(fullPath, []byte(content), 0644)
+	}
+
+	// Create .gitignore
+	gitignore := "ignored/\n"
+	os.WriteFile(filepath.Join(tempDir, ".gitignore"), []byte(gitignore), 0644)
+
+	// Test matching .go files
+	results, err := GlobFiles(tempDir, `\.go$`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should find all .go files except ignored ones
+	expectedFiles := []string{
+		filepath.Join(tempDir, "file1.go"),
+		filepath.Join(tempDir, "test_file.go"),
+		filepath.Join(tempDir, "subdir/nested.go"),
+		filepath.Join(tempDir, "subdir/deep/test.go"),
+	}
+
+	if len(results) != len(expectedFiles) {
+		t.Errorf("expected %d files, got %d", len(expectedFiles), len(results))
+	}
+
+	// Verify results contain expected files
+	resultPaths := make([]string, len(results))
+	for i, r := range results {
+		resultPaths[i] = r.Path
+	}
+
+	for _, expected := range expectedFiles {
+		found := false
+		for _, path := range resultPaths {
+			if path == expected {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected to find %s in results", expected)
+		}
+	}
+
+	// Verify ignored directory is not included
+	for _, r := range results {
+		if strings.Contains(r.Path, "ignored") {
+			t.Errorf("expected ignored directory to be skipped, but found: %s", r.Path)
+		}
+	}
+}
+
+func TestGlobFiles_InvalidPattern(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// Test with invalid regex
+	_, err := GlobFiles(tempDir, "[invalid")
+	if err == nil {
+		t.Error("expected error for invalid regex pattern")
+	}
+}
+
+func TestGlobFiles_NonExistentDirectory(t *testing.T) {
+	_, err := GlobFiles("/non/existent/directory", ".*")
+	if err == nil {
+		t.Error("expected error for non-existent directory")
+	}
+}
+
+func TestGlobDirectories(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// Create directory structure
+	dirs := []string{
+		"pkg/util",
+		"pkg/helper",
+		"cmd/app",
+		"internal/test",
+		"test_data",
+		"ignored/dir",
+	}
+
+	for _, dir := range dirs {
+		os.MkdirAll(filepath.Join(tempDir, dir), 0755)
+		// Create a file so directories are not empty
+		os.WriteFile(filepath.Join(tempDir, dir, "dummy.txt"), []byte("test"), 0644)
+	}
+
+	// Create .gitignore
+	gitignore := "ignored/\n"
+	os.WriteFile(filepath.Join(tempDir, ".gitignore"), []byte(gitignore), 0644)
+
+	// Test matching directories with "test" in name
+	results, err := GlobDirectories(tempDir, `test`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should find directories with "test" in name
+	expectedDirs := []string{
+		filepath.Join(tempDir, "internal/test"),
+		filepath.Join(tempDir, "test_data"),
+	}
+
+	if len(results) != len(expectedDirs) {
+		t.Errorf("expected %d directories, got %d", len(expectedDirs), len(results))
+	}
+
+	// Verify results
+	for _, expected := range expectedDirs {
+		found := false
+		for _, r := range results {
+			if r.Path == expected {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected to find directory %s", expected)
+		}
+	}
+
+	// Verify ignored directory is not included
+	for _, r := range results {
+		if strings.Contains(r.Path, "ignored") {
+			t.Errorf("expected ignored directory to be skipped, but found: %s", r.Path)
+		}
+	}
+}
+
+func TestGlobDirectories_InvalidPattern(t *testing.T) {
+	tempDir := t.TempDir()
+
+	_, err := GlobDirectories(tempDir, "[invalid")
+	if err == nil {
+		t.Error("expected error for invalid regex pattern")
+	}
+}

@@ -711,3 +711,142 @@ func replaceSymbolInFile(path string, oldName string, newName string) ([]Result,
 
 	return results, nil
 }
+
+// GlobFiles recursively lists all files matching the given regex pattern.
+// It respects .gitignore rules and searches from the specified directory.
+func GlobFiles(dir string, pattern string) ([]Result, error) {
+	// Compile regex pattern
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return nil, fmt.Errorf("invalid regex pattern: %w", err)
+	}
+
+	// Check if directory exists
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		return nil, fmt.Errorf("directory does not exist: %s", dir)
+	}
+
+	// Load .gitignore if it exists
+	var gi *ignore.GitIgnore
+	gitignorePath := filepath.Join(dir, ".gitignore")
+	if _, err := os.Stat(gitignorePath); err == nil {
+		gi, err = ignore.CompileIgnoreFile(gitignorePath)
+		if err != nil {
+			gi = nil
+		}
+	}
+
+	var results []Result
+
+	// Walk the directory tree
+	err = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+
+		// Skip directories
+		if info.IsDir() {
+			if gi != nil {
+				relPath, _ := filepath.Rel(dir, path)
+				if relPath != "." && gi.MatchesPath(relPath) {
+					return filepath.SkipDir
+				}
+			}
+			return nil
+		}
+
+		// Get relative path for gitignore matching
+		relPath, _ := filepath.Rel(dir, path)
+		if gi != nil && gi.MatchesPath(relPath) {
+			return nil
+		}
+
+		// Check if filename matches pattern
+		filename := filepath.Base(path)
+		if re.MatchString(filename) {
+			results = append(results, Result{
+				Path:   path,
+				Line:   0,
+				Column: 0,
+				Match:  filename,
+			})
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return results, nil
+}
+
+// GlobDirectories recursively lists all directories matching the given regex pattern.
+// It respects .gitignore rules and searches from the specified directory.
+func GlobDirectories(dir string, pattern string) ([]Result, error) {
+	// Compile regex pattern
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return nil, fmt.Errorf("invalid regex pattern: %w", err)
+	}
+
+	// Check if directory exists
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		return nil, fmt.Errorf("directory does not exist: %s", dir)
+	}
+
+	// Load .gitignore if it exists
+	var gi *ignore.GitIgnore
+	gitignorePath := filepath.Join(dir, ".gitignore")
+	if _, err := os.Stat(gitignorePath); err == nil {
+		gi, err = ignore.CompileIgnoreFile(gitignorePath)
+		if err != nil {
+			gi = nil
+		}
+	}
+
+	var results []Result
+
+	// Walk the directory tree
+	err = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+
+		// Only process directories
+		if !info.IsDir() {
+			return nil
+		}
+
+		// Skip the root directory itself
+		if path == dir {
+			return nil
+		}
+
+		// Get relative path for gitignore matching
+		relPath, _ := filepath.Rel(dir, path)
+		if gi != nil && gi.MatchesPath(relPath) {
+			return filepath.SkipDir
+		}
+
+		// Check if directory name matches pattern
+		dirname := filepath.Base(path)
+		if re.MatchString(dirname) {
+			results = append(results, Result{
+				Path:   path,
+				Line:   0,
+				Column: 0,
+				Match:  dirname,
+			})
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return results, nil
+}

@@ -20,7 +20,7 @@ func main() {
 
 func run() error {
 	if len(os.Args) < 2 {
-		return fmt.Errorf("usage: vtk <command> [options]\n\nAvailable commands:\n  format    Format input data (supports -f flag)\n  find      Search for pattern in files (respects .gitignore)")
+		return fmt.Errorf("usage: vtk <command> [options]\n\nAvailable commands:\n  format    Format input data (supports -f flag)\n  find      Search for pattern in files (respects .gitignore)\n  glob      List files/directories matching regex pattern")
 	}
 
 	command := os.Args[1]
@@ -30,8 +30,10 @@ func run() error {
 		return runFormat(os.Args[2:])
 	case "find":
 		return runFind(os.Args[2:])
+	case "glob":
+		return runGlob(os.Args[2:])
 	default:
-		return fmt.Errorf("unknown command: %q\n\nAvailable commands:\n  format    Format input data (supports -f flag)\n  find      Search for pattern in files (respects .gitignore)", command)
+		return fmt.Errorf("unknown command: %q\n\nAvailable commands:\n  format    Format input data (supports -f flag)\n  find      Search for pattern in files (respects .gitignore)\n  glob      List files/directories matching regex pattern", command)
 	}
 }
 
@@ -126,6 +128,52 @@ func runFind(args []string) error {
 	// Format and print results in Emacs compilation mode format
 	output := finder.FormatEmacsOutput(results)
 	fmt.Print(output)
+
+	return nil
+}
+
+func runGlob(args []string) error {
+	// Create a new flag set for the glob command
+	globCmd := flag.NewFlagSet("glob", flag.ExitOnError)
+	matchDirectories := globCmd.Bool("d", false, "match directory names instead of file names")
+
+	// Parse flags
+	if err := globCmd.Parse(args); err != nil {
+		return fmt.Errorf("failed to parse flags: %w", err)
+	}
+
+	// Get remaining arguments (pattern and optional directory)
+	remainingArgs := globCmd.Args()
+	if len(remainingArgs) < 1 {
+		return fmt.Errorf("usage: vtk glob [-d] <pattern> [directory]\n\nList files/directories matching regex pattern\n  -d    match directory names instead of file names")
+	}
+
+	pattern := remainingArgs[0]
+	dir := "."
+
+	// Optional directory argument
+	if len(remainingArgs) > 1 {
+		dir = remainingArgs[1]
+	}
+
+	// Perform glob search (files or directories)
+	var results []finder.Result
+	var err error
+
+	if *matchDirectories {
+		results, err = finder.GlobDirectories(dir, pattern)
+	} else {
+		results, err = finder.GlobFiles(dir, pattern)
+	}
+
+	if err != nil {
+		return fmt.Errorf("glob failed: %w", err)
+	}
+
+	// Print results (one path per line)
+	for _, result := range results {
+		fmt.Println(result.Path)
+	}
 
 	return nil
 }
