@@ -34,3 +34,7 @@ go.work.sum
 # .idea/
 # .vscode/
 /internal/stedi/stedi.go~
+/.env~
+*.jsonl
+*.jsonl~
+/subscribers.csv

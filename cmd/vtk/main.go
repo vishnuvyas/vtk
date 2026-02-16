@@ -2,13 +2,17 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 
+	"github.com/joho/godotenv"
+	"github.com/schollz/progressbar/v3"
 	"github.com/vishnuvyas/vtk/internal/finder"
 	"github.com/vishnuvyas/vtk/internal/format"
+	"github.com/vishnuvyas/vtk/internal/stedi"
 )
 
 func main() {
@@ -23,6 +27,11 @@ func run() error {
 		return fmt.Errorf("usage: vtk <command> [options]\n\nAvailable commands:\n  format    Format input data (supports -f flag)\n  find      Search for pattern in files (respects .gitignore)\n  glob      List files/directories matching regex pattern")
 	}
 
+	// load environment variables
+	err := godotenv.Load()
+	if err != nil {
+		return fmt.Errorf("unable to load any environment settings, please have a .env file in cwd: %v", err)
+	}
 	command := os.Args[1]
 
 	switch command {
@@ -32,9 +41,49 @@ func run() error {
 		return runFind(os.Args[2:])
 	case "glob":
 		return runGlob(os.Args[2:])
+	case "stedi":
+		return runStedi(os.Args[2:])
 	default:
 		return fmt.Errorf("unknown command: %q\n\nAvailable commands:\n  format    Format input data (supports -f flag)\n  find      Search for pattern in files (respects .gitignore)\n  glob      List files/directories matching regex pattern", command)
 	}
+}
+
+func runStedi(args []string) error {
+	stediCmd := flag.NewFlagSet("stedi", flag.ExitOnError)
+	key := stediCmd.String("k", os.Getenv("STEDI_API_KEY"), "stedi api key")
+	providerName := stediCmd.String("p", "ResolutionCare", "provider name, defaults to (resolution care)")
+	npi := stediCmd.String("npi", "1194121681", "rendering provider npi")
+	subscriberCsv := stediCmd.String("s", "subscribers.csv", "csv file with subscriber information for eligibility verification")
+	outputJsonl := stediCmd.String("o", "eligibility.jsonl", "output jsonl file containing eligibility information")
+
+	if err := stediCmd.Parse(args); err != nil {
+		stediCmd.Usage()
+		return fmt.Errorf("error parsing arguments for stedi command: %v", err)
+	}
+
+	subscribers, err := stedi.LoadSubscriberInfoCSV(*subscriberCsv)
+	if err != nil {
+		return fmt.Errorf("unable to process input csv due to %v", err)
+	}
+
+	stediClient := stedi.NewStediClient(*providerName, *npi, *key)
+	ctx := context.Background()
+	outputFile, err := os.Create(*outputJsonl)
+	if err != nil {
+		return fmt.Errorf("unable to open output file: %v", err)
+	}
+	defer outputFile.Close()
+	bar := progressbar.Default(int64(len(subscribers)))
+
+	for _, subscriber := range subscribers {
+		resp, err := stediClient.RealtimeEligibility(ctx, subscriber.StediPayerID, subscriber.Subscriber)
+		if err != nil {
+			return fmt.Errorf("unable to get stedi realtime eligibility: %v", err)
+		}
+		outputFile.WriteString(resp + "\n")
+		bar.Add(1)
+	}
+	return nil
 }
 
 func runFormat(args []string) error {
