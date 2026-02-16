@@ -47,10 +47,11 @@ func (d *StediDate) UnmarshalJSON(b []byte) error {
 }
 
 type StediSubscriber struct {
-	FirstName   string    `json:"firstName"`
-	LastName    string    `json:"lastName"`
-	DateOfBirth StediDate `json:"dateOfBirth"`
-	MemberID    string    `json:"memberId"`
+	FirstName         string    `json:"firstName"`
+	LastName          string    `json:"lastName"`
+	DateOfBirth       StediDate `json:"dateOfBirth"`
+	MemberID          string    `json:"memberId"`
+	ExternalPatientID string    `json:"-"`
 }
 
 type ExtendedSubscriber struct {
@@ -96,7 +97,7 @@ func LoadSubscriberInfoCSV(filename string) ([]ExtendedSubscriber, error) {
 		idx[norm(h)] = i
 	}
 
-	required := []string{"firstname", "lastname", "dateofbirth", "memberid", "stedipayerid"}
+	required := []string{"firstname", "lastname", "dateofbirth", "memberid", "stedipayerid", "externalpatientid"}
 	for _, k := range required {
 		if _, ok := idx[k]; !ok {
 			return nil, fmt.Errorf("csv %q: missing required header %q", filename, k)
@@ -108,7 +109,8 @@ func LoadSubscriberInfoCSV(filename string) ([]ExtendedSubscriber, error) {
 		if i < 0 || i >= len(rec) {
 			return "", false
 		}
-		return strings.TrimSpace(rec[i]), true
+		val := strings.TrimSpace(rec[i])
+		return val, (val != "")
 	}
 
 	var subs []ExtendedSubscriber
@@ -131,7 +133,8 @@ func LoadSubscriberInfoCSV(filename string) ([]ExtendedSubscriber, error) {
 		payerID, ok3 := get(rec, "stedipayerid")
 		memberID, ok4 := get(rec, "memberid")
 		dobStr, ok5 := get(rec, "dateofbirth")
-		if !(ok1 && ok2 && ok3 && ok4 && ok5) {
+		externalPatientID, ok6 := get(rec, "externalPatientId")
+		if !ok1 || !ok2 || !ok3 || !ok4 || !ok5 || !ok6 {
 			// row shorter than header (or malformed)
 			allSkipped++
 			slog.Warn("Skipping short/malformed row", "line", line, "len", len(rec))
@@ -148,15 +151,16 @@ func LoadSubscriberInfoCSV(filename string) ([]ExtendedSubscriber, error) {
 		subs = append(subs, ExtendedSubscriber{
 			StediPayerID: payerID,
 			Subscriber: StediSubscriber{
-				FirstName:   firstName,
-				LastName:    lastName,
-				MemberID:    memberID,
-				DateOfBirth: StediDate(dob),
+				FirstName:         firstName,
+				LastName:          lastName,
+				MemberID:          memberID,
+				DateOfBirth:       StediDate(dob),
+				ExternalPatientID: externalPatientID,
 			},
 		})
 	}
 
-	if skippedDOB > 0 {
+	if skippedDOB > 0 || allSkipped > 0 {
 		slog.Warn("CSV load completed with skipped rows", "file", filename, "skippedDOB", skippedDOB, "otherSkipped", allSkipped)
 	}
 	return subs, nil
@@ -170,6 +174,10 @@ func (s *StediClient) RealtimeEligibility(ctx context.Context, stediPayerID stri
 	namespaceUUID := uuid.MustParse(namespaceStr)
 	deterministicUUID := uuid.NewSHA1(namespaceUUID, []byte(patientKey))
 
+	if subscriber.ExternalPatientID == "" {
+		subscriber.ExternalPatientID = deterministicUUID.String()
+	}
+
 	message := struct {
 		ExternalPatientID string `json:"externalPatientId"`
 		Encounter         struct {
@@ -182,7 +190,7 @@ func (s *StediClient) RealtimeEligibility(ctx context.Context, stediPayerID stri
 		Subscriber   StediSubscriber `json:"subscriber"`
 		StediPayerID string          `json:"tradingPartnerServiceId"`
 	}{
-		ExternalPatientID: deterministicUUID.String(),
+		ExternalPatientID: subscriber.ExternalPatientID,
 		Encounter: struct {
 			ServiceTypeCodes []string "json:\"serviceTypeCodes\""
 		}{
@@ -199,7 +207,6 @@ func (s *StediClient) RealtimeEligibility(ctx context.Context, stediPayerID stri
 		StediPayerID: stediPayerID,
 	}
 	jsonMessage, err := json.Marshal(message)
-	fmt.Println(string(jsonMessage))
 	if err != nil {
 		slog.Error("Unable to marshall request", "err", err)
 		return "", err

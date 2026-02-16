@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 
 	"github.com/joho/godotenv"
@@ -78,7 +79,9 @@ func runStedi(args []string) error {
 	for _, subscriber := range subscribers {
 		resp, err := stediClient.RealtimeEligibility(ctx, subscriber.StediPayerID, subscriber.Subscriber)
 		if err != nil {
-			return fmt.Errorf("unable to get stedi realtime eligibility: %v", err)
+			slog.Warn("Skipping subscriber.", "externalPatientId", subscriber.Subscriber.ExternalPatientID)
+			bar.Add(1)
+			continue
 		}
 		outputFile.WriteString(resp + "\n")
 		bar.Add(1)
