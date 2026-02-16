@@ -52,6 +52,8 @@ type StediSubscriber struct {
 	DateOfBirth       StediDate `json:"dateOfBirth"`
 	MemberID          string    `json:"memberId"`
 	ExternalPatientID string    `json:"-"`
+	payerName         string
+	planName          string
 }
 
 type ExtendedSubscriber struct {
@@ -97,7 +99,7 @@ func LoadSubscriberInfoCSV(filename string) ([]ExtendedSubscriber, error) {
 		idx[norm(h)] = i
 	}
 
-	required := []string{"firstname", "lastname", "dateofbirth", "memberid", "stedipayerid", "externalpatientid"}
+	required := []string{"firstname", "lastname", "dateofbirth", "memberid", "stedipayerid", "externalpatientid", "payername", "planname"}
 	for _, k := range required {
 		if _, ok := idx[k]; !ok {
 			return nil, fmt.Errorf("csv %q: missing required header %q", filename, k)
@@ -134,7 +136,9 @@ func LoadSubscriberInfoCSV(filename string) ([]ExtendedSubscriber, error) {
 		memberID, ok4 := get(rec, "memberid")
 		dobStr, ok5 := get(rec, "dateofbirth")
 		externalPatientID, ok6 := get(rec, "externalPatientId")
-		if !ok1 || !ok2 || !ok3 || !ok4 || !ok5 || !ok6 {
+		payerName, ok7 := get(rec, "payername")
+		planName, ok8 := get(rec, "planname")
+		if !ok1 || !ok2 || !ok3 || !ok4 || !ok5 || !ok6 || !ok7 || !ok8 {
 			// row shorter than header (or malformed)
 			allSkipped++
 			slog.Warn("Skipping short/malformed row", "line", line, "len", len(rec))
@@ -156,6 +160,8 @@ func LoadSubscriberInfoCSV(filename string) ([]ExtendedSubscriber, error) {
 				MemberID:          memberID,
 				DateOfBirth:       StediDate(dob),
 				ExternalPatientID: externalPatientID,
+				payerName:         payerName,
+				planName:          planName,
 			},
 		})
 	}
@@ -236,6 +242,21 @@ func (s *StediClient) RealtimeEligibility(ctx context.Context, stediPayerID stri
 		slog.Error("error reading body", "err", err)
 		return "", err
 	}
+
+	var respMessage map[string]any
+	json.Unmarshal(bodyBytes, &respMessage)
+	respMessage["_payer"] = subscriber.payerName
+	respMessage["_planName"] = subscriber.planName
+	respMessage["_patientUuid"] = subscriber.ExternalPatientID
+	respMessage["_firstName"] = subscriber.FirstName
+	respMessage["_lastName"] = subscriber.LastName
+	respMessage["_dateOfBirth"] = time.Time(subscriber.DateOfBirth).Local().Format("20060201")
+
+	respBytes, err := json.Marshal(respMessage)
+	if err != nil {
+		return "", fmt.Errorf("unable to marshall enriched response: %v", err)
+	}
+
 	// print the resonse
-	return string(bodyBytes), nil
+	return string(respBytes), nil
 }
